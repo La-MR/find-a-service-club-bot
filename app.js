@@ -237,11 +237,11 @@ async function sendMoreDetailsTemplate(recipientId, clubName) {
   
   if (club.membershipContact) {
     if (club.membershipContact.phone) {
-      membContactPhone = club.membershipContact.phone;
+      membContactPhone = '+1' + club.membershipContact.phone;
       membershipContactButtons.push({
         type: "phone_number",
         title: `Call`,
-        payload: '+1' + membContactPhone
+        payload: membContactPhone
       });
       if (club.membershipContact.email) {
         membContactEmail = club.membershipContact.email;
