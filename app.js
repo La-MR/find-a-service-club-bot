@@ -16,7 +16,8 @@ const
   imageAPI = require('google-maps-image-api-url'),
   fullPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/,
   partialPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?$/,
-  zipCodeRegex = /^\d{5}(?:[-\s]\d{4})?$/;
+  zipCodeRegex = /^\d{5}(?:[-\s]\d{4})?$/,
+  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37868236_2203452356350570_8032674598367526912_n.png?_nc_cat=0&oh=aa1fac33ba973687d31b756b278f36ca&oe=5BC77E17`;
 
 var db;
 var app = express();
@@ -24,6 +25,7 @@ app.set('port', 5000);
 app.use(bodyParser.json({
   verify: verifyRequestSignature
 }));
+
 
 
 /*
@@ -48,12 +50,11 @@ const CLUBS_NUM = config.get('closestClubsToReturn') || 5;
 
 const GOOGLE_API_KEY = config.get('googleAPIKey');
 
-
 // make sure that everything has been properly configured
 if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN && MONGO_DB_URL && CLUBS_NUM && GOOGLE_API_KEY)) {
   console.error("Missing config values");
   process.exit(1);
-} 
+}
 
 /*
  * Verify that the request came from Facebook. You should expect a hash of 
@@ -128,6 +129,8 @@ app.post('/webhook', function (req, res) {
         let propertyNames = Object.keys(messagingEvent);
         console.log("[app.post] Webhook event props: ", propertyNames.join());
 
+        acknowledgeUserMessage(messagingEvent.sender.id);
+
         if (messagingEvent.message) {
           processMessageFromPage(messagingEvent);
         } else if (messagingEvent.postback) {
@@ -136,7 +139,7 @@ app.post('/webhook', function (req, res) {
         } else {
           console.log("[app.post] not prepared to handle this message type.");
         }
-
+        sendSenderAction(messagingEvent.sender.id, "typing_off");
       });
     });
 
@@ -167,13 +170,75 @@ function processPostbackMessage(event) {
   if (payload === 'Get Started') {
     sendHelpOptionsAsQuickReplies(senderID);
   }
+  else if (payload.indexOf('clubId:') > -1) {
+    const clubName = payload.split(':')[1];
+    sendMoreDetailsTemplate(senderID, clubName);
+  }
+}
+
+async function getClub(clubName) {
+  const club = await db.collection('clubs').findOne({ clubName: { $eq: clubName } });
+  return club;
+}
+
+async function sendMoreDetailsTemplate(recipientId, clubName) {
+
+  const club = await getClub(clubName);
+  console.log(JSON.stringify(club));
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [
+            {
+              "title":"Welcome!",
+              "image_url":"https://petersfancybrownhats.com/company_image.png",
+              "subtitle":"We have the right hat for everyone.",
+              "default_action": {
+                "type": "web_url",
+                "url": "https://petersfancybrownhats.com/view?item=103",
+                "webview_height_ratio": "tall",
+              },
+              "buttons":[
+                {
+                  "type":"web_url",
+                  "url":"https://petersfancybrownhats.com",
+                  "title":"View Website"
+                },{
+                  "type":"postback",
+                  "title":"Start Chatting",
+                  "payload":"DEVELOPER_DEFINED_PAYLOAD"
+                }              
+              ]      
+            }
+          ]
+        }
+      }
+    }
+  };
+}
+
+async function respondWithClosestClubs(senderID, messageText, regionCode, coordinates) {
+  try {
+    const clubs = await getClosestClubs(messageText, coordinates, regionCode);
+    sendTextMessage(senderID, `Here are the ${CLUBS_NUM} closest clubs: \n`);
+    sendGenericTemplates(senderID, clubs);
+  } catch (err) {
+    console.log(err);
+    sendTextMessage(senderID, err);
+  }
 }
 
 /*
  * Called when a message is sent to your page. 
  * 
  */
-async function processMessageFromPage(event) {
+function processMessageFromPage(event) {
   var senderID = event.sender.id;
   var pageID = event.recipient.id;
   var timeOfMessage = event.timestamp;
@@ -197,26 +262,20 @@ async function processMessageFromPage(event) {
     console.log("[processMessageFromPage]: %s", messageText);
     var lowerCaseMsg = messageText.toLowerCase();
     if (lowerCaseMsg === 'help') {
-
       // handle 'help' as a special case
       sendHelpOptionsAsQuickReplies(senderID);
 
     } else if (messageText.match(partialPostalRegex) || messageText.match(fullPostalRegex)) {
 
       // handle postal code
-      const clubs = await getClosestClubs(messageText, null, 'ca');
-      sendTextMessage(senderID, `Here are the ${CLUBS_NUM} closest clubs: \n`);
-      sendGenericTemplates(senderID, clubs);
+      respondWithClosestClubs(senderID, messageText, 'ca', null);
 
     } else if (messageText.match(zipCodeRegex)) {
 
       //us zip code so restrict and search for provided location in US
-      const clubs = await getClosestClubs(messageText, null, 'us');
-      sendTextMessage(senderID, `Here are the ${CLUBS_NUM} closest clubs: \n`);
-      sendGenericTemplates(senderID, clubs);
+      respondWithClosestClubs(senderID, messageText, 'us', null);
 
     } else {
-
       // the user sent a message we're not prepared to handle
       var msg = 'I\'m only capable of responding to one plain text word and that word is \'help\'';
       sendTextMessage(senderID, msg);
@@ -230,10 +289,7 @@ async function processMessageFromPage(event) {
     if (att && att.type === 'location') {
       //got location attachment
       const coordinates = att.payload.coordinates;
-      const clubs = await await getClosestClubs(null, coordinates);
-      sendTextMessage(senderID, `Here are the ${CLUBS_NUM} closest clubs: \n`);
-
-      sendGenericTemplates(senderID, clubs);
+      respondWithClosestClubs(senderID, null, null, coordinates);
     }
   }
 }
@@ -319,158 +375,6 @@ function requestUsersLocation(senderID) {
   callSendAPI(messageData);
 }
 
-/*
- * This response uses templateElements to present the user with a carousel
- * You send ALL of the content for the selected feature and they swipe 
- * left and right to see it
- *
- */
-function getGenericTemplates(recipientId, requestForHelpOnFeature) {
-  console.log("[getGenericTemplates] handling help request for %s", requestForHelpOnFeature);
-  var templateElements = [];
-  var sectionButtons = [];
-  // each button must be of type postback but title
-  // and payload are variable depending on which 
-  // set of options you want to provide
-  var addSectionButton = function (title, payload) {
-    sectionButtons.push({
-      type: 'postback',
-      title: title,
-      payload: payload
-    });
-  }
-
-  // Since there are only four options in total, we will provide 
-  // buttons for each of the remaining three with each section. 
-  // This provides the user with maximum flexibility to navigate
-
-  switch (requestForHelpOnFeature) {
-    case 'QR_ROTATION_1':
-      addSectionButton('Photo', 'QR_PHOTO_1');
-      addSectionButton('Caption', 'QR_CAPTION_1');
-      addSectionButton('Background', 'QR_BACKGROUND_1');
-
-      templateElements.push({
-        title: "Rotation",
-        subtitle: "portrait mode",
-        image_url: IMG_BASE_PATH + "01-rotate-landscape.png",
-        buttons: sectionButtons
-      }, {
-        title: "Rotation",
-        subtitle: "landscape mode",
-        image_url: IMG_BASE_PATH + "02-rotate-portrait.png",
-        buttons: sectionButtons
-      });
-      break;
-    case 'QR_PHOTO_1':
-      addSectionButton('Rotation', 'QR_ROTATION_1');
-      addSectionButton('Caption', 'QR_CAPTION_1');
-      addSectionButton('Background', 'QR_BACKGROUND_1');
-
-      templateElements.push({
-        title: "Photo Picker",
-        subtitle: "click to start",
-        image_url: IMG_BASE_PATH + "03-photo-hover.png",
-        buttons: sectionButtons
-      }, {
-        title: "Photo Picker",
-        subtitle: "Downloads folder",
-        image_url: IMG_BASE_PATH + "04-photo-list.png",
-        buttons: sectionButtons
-      }, {
-        title: "Photo Picker",
-        subtitle: "photo selected",
-        image_url: IMG_BASE_PATH + "05-photo-selected.png",
-        buttons: sectionButtons
-      });
-      break;
-    case 'QR_CAPTION_1':
-      addSectionButton('Rotation', 'QR_ROTATION_1');
-      addSectionButton('Photo', 'QR_PHOTO_1');
-      addSectionButton('Background', 'QR_BACKGROUND_1');
-
-      templateElements.push({
-        title: "Caption",
-        subtitle: "click to start",
-        image_url: IMG_BASE_PATH + "06-text-hover.png",
-        buttons: sectionButtons
-      }, {
-        title: "Caption",
-        subtitle: "enter text",
-        image_url: IMG_BASE_PATH + "07-text-mid-entry.png",
-        buttons: sectionButtons
-      }, {
-        title: "Caption",
-        subtitle: "click OK",
-        image_url: IMG_BASE_PATH + "08-text-entry-done.png",
-        buttons: sectionButtons
-      }, {
-        title: "Caption",
-        subtitle: "Caption done",
-        image_url: IMG_BASE_PATH + "09-text-complete.png",
-        buttons: sectionButtons
-      });
-      break;
-    case 'QR_BACKGROUND_1':
-      addSectionButton('Rotation', 'QR_ROTATION_1');
-      addSectionButton('Photo', 'QR_PHOTO_1');
-      addSectionButton('Caption', 'QR_CAPTION_1');
-
-      templateElements.push({
-        title: "Background Color Picker",
-        subtitle: "click to start",
-        image_url: IMG_BASE_PATH + "10-background-picker-hover.png",
-        buttons: sectionButtons
-      }, {
-        title: "Background Color Picker",
-        subtitle: "click current color",
-        image_url: IMG_BASE_PATH + "11-background-picker-appears.png",
-        buttons: sectionButtons
-      }, {
-        title: "Background Color Picker",
-        subtitle: "select new color",
-        image_url: IMG_BASE_PATH + "12-background-picker-selection.png",
-        buttons: sectionButtons
-      }, {
-        title: "Background Color Picker",
-        subtitle: "click ok",
-        image_url: IMG_BASE_PATH + "13-background-picker-selection-made.png",
-        buttons: sectionButtons
-      }, {
-        title: "Background Color Picker",
-        subtitle: "color is applied",
-        image_url: IMG_BASE_PATH + "14-background-changed.png",
-        buttons: sectionButtons
-      });
-      break;
-  }
-
-  if (templateElements.length < 2) {
-    console.error("each template should have at least two elements");
-  }
-
-  var messageData = {
-    recipient: {
-      id: recipientId
-    },
-    message: {
-      type: "element_share",
-      share_contents: {
-        attachment: {
-          type: "template",
-          payload: {
-            template_type: "generic",
-            elements: templateElements
-          }
-        }
-      }
-    }
-
-  };
-
-  return messageData;
-}
-
 function compileAddressString(addressObj) {
   return `${addressObj.streetNumber} ${addressObj.streetName}, 
   ${addressObj.city}, ${addressObj.province} ${addressObj.postal}`;
@@ -496,14 +400,48 @@ function getMultipleGenericTemplates(recipientId, clubObjects) {
         webview_height_ratio: "tall"
       };
     }
-    if (clubObject.membershipContact.phone) {
-      btns.push({
-        type: "phone_number",
-        title: `Call for membership`, // was too long to include name ${clubObject.membershipContact.name}
-        payload: clubObject.membershipContact.phone
-      });
-    }
+    // if (clubObject.membershipContact.phone) {
+    //   btns.push({
+    //     type: "phone_number",
+    //     title: `Call for membership`, // was too long to include name ${clubObject.membershipContact.name}
+    //     payload: clubObject.membershipContact.phone
+    //   });
+    // }
 
+    //more info button
+    btns.push({
+      "type": "postback",
+      "title": "More Info",
+      "payload": `clubId:${clubObject.clubName}`
+    });
+
+    //share button
+    // btns.push({
+    //   type: "element_share",
+    //   share_contents: {
+    //     attachment: {
+    //       "type": "template",
+    //       "payload": {
+    //         "template_type": "generic",
+    //         "elements": [
+    //           {
+    //             "title": clubObject.clubName,
+    //             "subtitle": compileAddressString(clubObject.meetings.address),
+    //             "image_url": clubObject.imageUrl,
+    //             "default_action": defaultAction,
+    //             "buttons": [
+    //               // {
+    //               //   "type": "web_url",
+    //               //   "url": clubObject.website || 'https://directory.lionsclubs.org/', 
+    //               //   "title": "Find your local Lions Club"
+    //               // }
+    //             ]
+    //           }
+    //         ]
+    //       }
+    //     }
+    //   }
+    // });
 
     var messageData = {
       title: clubObject.clubName,
@@ -556,6 +494,28 @@ function sendTextMessage(recipientId, messageText) {
     }
   };
   console.log("[sendTextMessage] %s", JSON.stringify(messageData));
+  callSendAPI(messageData);
+}
+
+
+/** As a best practice to send an acknowledgement 
+ * to user for their message
+ */
+function acknowledgeUserMessage(recipientId) {
+  //to show that user's message was seen
+  sendSenderAction(recipientId, "mark_seen");
+  //to show that the message is being responded to
+  sendSenderAction(recipientId, "typing_on");
+}
+
+function sendSenderAction(recipientId, senderAction) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    sender_action: senderAction
+  };
+  console.log("[sendSenderAction] %s", JSON.stringify(messageData));
   callSendAPI(messageData);
 }
 
@@ -647,7 +607,7 @@ function getMapImageUrl(clientLocationString, clubLocationString) {
     center: '',
     key: GOOGLE_API_KEY,
     type: 'staticmap',
-    size: '573x300',//'500x260',
+    size: '573x300', //'500x260',
     maptype: 'roadmap',
     format: 'PNG',
     markers: [`size:mid|color:blue|${clientLocationString}`, `size:mid|color:red|${clubLocationString}`],
@@ -664,9 +624,13 @@ async function getCoordinates(addr, regionCode) {
     console.log(response.error_message);
     return '';
   } else {
-    const geoData = response.json.results[0];
-    const originLonLat = getGeocodeLocation(geoData);
-    return originLonLat.lat + ',' + originLonLat.lng;
+    if (response.json.results.length > 0) {
+      const geoData = response.json.results[0];
+      const originLonLat = getGeocodeLocation(geoData);
+      return originLonLat.lat + ',' + originLonLat.lng;
+    } else {
+      return '';
+    }
   }
 }
 
@@ -676,7 +640,7 @@ async function getCoordinates(addr, regionCode) {
  * if providing coordinates, it will be used straigh without checking Google API Geocode
  * regionCode, if provided, restricts geocoding to that region
  */
-function getClosestClubs(address, coordinates, regionCode) {
+async function getClosestClubs(address, coordinates, regionCode) {
   return new Promise(async (resolve, reject) => {
 
     try {
@@ -688,53 +652,56 @@ function getClosestClubs(address, coordinates, regionCode) {
       } else {
         origin = await getCoordinates(address, regionCode);
       }
-
-      const clubs = await db.collection('clubs').find().toArray();
-      const locations = clubs.map(item =>
-        item.meetings.address.location.lat + ',' + item.meetings.address.location.lng
-      );
-
-      const query = {
-        origins: [origin],
-        destinations: locations
-      };
-
-      const distResponse = await callDistanceMatrix(query);
-
-      if (distResponse.status !== 200) {
-        reject(distResponse.error_message);
+      if (origin === '') {
+        reject('Could not determine your location, please make sure the postal code is correct or full');
       } else {
+        const clubs = await db.collection('clubs').find().toArray();
+        const locations = clubs.map(item =>
+          item.meetings.address.location.lat + ',' + item.meetings.address.location.lng
+        );
 
-        const result = distResponse.json;
-        if (result.status !== 'OK') {
-          reject(result.error_message);
+        const query = {
+          origins: [origin],
+          destinations: locations
+        };
+
+        const distResponse = await callDistanceMatrix(query);
+
+        if (distResponse.status !== 200) {
+          console.log(distResponse.error_message);
+          reject("There was a problem determining distance from you to closest clubs");
         } else {
+          const result = distResponse.json;
+          if (result.status !== 'OK') {
+            console.log(result.error_message);
+            reject("Something went wrong, please give it a try in a minute");
+          } else {
 
-          const returnedElements = result.rows[0].elements;
-          const distancesToSort = returnedElements.map((el, index) => [el.distance.value, index]);
-          distancesToSort.sort((a, b) => a[0] - b[0]);
-          const requiredIndexedDistances = distancesToSort.slice(0, CLUBS_NUM);
-          let foundClubs = [];
-          for (let i = 0; i < requiredIndexedDistances.length; i++) {
-            const c = clubs[requiredIndexedDistances[i][1]];
-            let img = '';
-            try {
-              img = await getMapImageUrl(origin, `${c.meetings.address.location.lat},${c.meetings.address.location.lng}`);
-              console.log(img);
-            } catch (err) {
-              console.log(err);
+            const returnedElements = result.rows[0].elements;
+            const distancesToSort = returnedElements.map((el, index) => [el.distance.value, index]);
+            distancesToSort.sort((a, b) => a[0] - b[0]);
+            const requiredIndexedDistances = distancesToSort.slice(0, CLUBS_NUM);
+            let foundClubs = [];
+            for (let i = 0; i < requiredIndexedDistances.length; i++) {
+              const c = clubs[requiredIndexedDistances[i][1]];
+              let img = '';
+              try {
+                img = await getMapImageUrl(origin, `${c.meetings.address.location.lat},${c.meetings.address.location.lng}`);
+                console.log(img);
+              } catch (err) {
+                console.log(err);
+              }
+              c.imageUrl = img;
+              foundClubs.push(c);
             }
-            c.imageUrl = img;
-            foundClubs.push(c);
+            //const foundClubs = clubs.filter((el, index) => r.map(e => e[1] === index)).forEach(element => getClubInfo(element));
+            resolve(foundClubs);
           }
-          //const foundClubs = clubs.filter((el, index) => r.map(e => e[1] === index)).forEach(element => getClubInfo(element));
-          resolve(foundClubs);
         }
       }
-
     } catch (err) {
       console.log(err);
-      reject(err);
+      reject("Something went terribly wrong. Apologies");
     }
   });
 }
