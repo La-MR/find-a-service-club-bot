@@ -241,7 +241,7 @@ async function sendMoreDetailsTemplate(recipientId, clubName) {
       membershipContactButtons.push({
         type: "phone_number",
         title: `Call`,
-        payload: membContactPhone
+        payload: '+1' + membContactPhone
       });
       if (club.membershipContact.email) {
         membContactEmail = club.membershipContact.email;
