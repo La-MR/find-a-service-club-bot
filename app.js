@@ -6,7 +6,6 @@ const
   config = require('config'),
   crypto = require('crypto'),
   express = require('express'),
-  // https = require('https'),
   request = require('request'),
   mongoClient = require('mongodb').MongoClient,
   googleMapsClient = require('@google/maps').createClient({
@@ -335,7 +334,6 @@ function handleQuickReplyResponse(event) {
   console.log("[handleQuickReplyResponse] Handling quick reply response (%s) from sender (%d) to page (%d) with message (%s)",
     quickReplyPayload, senderID, pageID, JSON.stringify(message));
 
-  //respondToHelpRequest(senderID, quickReplyPayload);
   switch (quickReplyPayload) {
     case 'QR_POSTAL_CODE':
       requestUsersPostalCode(senderID);
