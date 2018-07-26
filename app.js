@@ -22,7 +22,7 @@ const
   clubsCollectionName = 'clubs';
 var db;
 var app = express();
-app.set('port', 1337);
+app.set('port', 5000);
 app.use(bodyParser.json({
   verify: verifyRequestSignature
 }));
@@ -140,7 +140,7 @@ app.post('/webhook', function (req, res) {
         } else {
           console.log("[app.post] not prepared to handle this message type.");
         }
-        sendSenderAction(messagingEvent.sender.id, "typing_off");
+        // sendSenderAction(messagingEvent.sender.id, "typing_off");
       });
     });
 
@@ -564,7 +564,7 @@ function acknowledgeUserMessage(recipientId) {
   //to show that user's message was seen
   sendSenderAction(recipientId, "mark_seen");
   //to show that the message is being responded to
-  sendSenderAction(recipientId, "typing_on");
+  // sendSenderAction(recipientId, "typing_on");
 }
 
 function sendSenderAction(recipientId, senderAction) {
