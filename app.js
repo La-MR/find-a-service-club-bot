@@ -17,8 +17,9 @@ const
   fullPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/,
   partialPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?$/,
   zipCodeRegex = /^\d{5}(?:[-\s]\d{4})?$/,
-  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37868236_2203452356350570_8032674598367526912_n.png?_nc_cat=0&oh=aa1fac33ba973687d31b756b278f36ca&oe=5BC77E17`;
-
+  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37868236_2203452356350570_8032674598367526912_n.png?_nc_cat=0&oh=aa1fac33ba973687d31b756b278f36ca&oe=5BC77E17`,
+  sTemplatesCollectionName = 'templates',
+  clubsCollectionName = 'clubs';
 var db;
 var app = express();
 app.set('port', 5000);
@@ -154,7 +155,7 @@ app.post('/webhook', function (req, res) {
  * https://developers.facebook.com/docs/messenger-platform/webhook-reference/postback-received
  * 
  */
-function processPostbackMessage(event) {
+async function processPostbackMessage(event) {
   var senderID = event.sender.id;
   var recipientID = event.recipient.id;
   var timeOfPostback = event.timestamp;
@@ -174,10 +175,38 @@ function processPostbackMessage(event) {
     const clubName = payload.split(':')[1];
     sendMoreDetailsTemplate(senderID, clubName);
   }
+  else if (payload === 'GO_BACK_TO_CLUBS') {
+    /** user pressed GO Back To Clubs button in More Details template
+      show them the clubs carousel
+    */
+    const messageData = await getSenderTemplate(senderID);
+    callSendAPI(messageData.template);
+  }
+}
+
+async function saveSenderTemplate(senderID, templateObj) {
+  //first check if a record for this sender exists in order to update, otherwise just insert
+  try {
+    const senderTemplate = await getSenderTemplate(senderID);
+    const temp = { senderID: senderID, template: templateObj };
+    if (senderTemplate) {
+      //already exists, need to update
+      temp._id = senderTemplate._id;
+    }
+    db.collection(sTemplatesCollectionName).save(temp);
+    console.log('Saved template for sender: ' + senderID);
+  } catch (err) {
+      console.log('Error when saving sender template: ' + err);
+  }
+}
+
+async function getSenderTemplate(senderID) {
+  const senderTemplate = await db.collection(sTemplatesCollectionName).findOne({ senderID: { $eq: senderID} });
+  return senderTemplate;
 }
 
 async function getClub(clubName) {
-  const club = await db.collection('clubs').findOne({ clubName: { $eq: clubName } });
+  const club = await db.collection(clubsCollectionName).findOne({ clubName: { $eq: clubName } });
   return club;
 }
 
@@ -185,6 +214,40 @@ async function sendMoreDetailsTemplate(recipientId, clubName) {
 
   const club = await getClub(clubName);
   console.log(JSON.stringify(club));
+  const backButton = {
+    type: "postback",
+    title: "Go Back To Clubs",
+    payload: "GO_BACK_TO_CLUBS"
+  };
+  const membershipContactButtons = [];
+  let membContactPhone = '';
+  let membContactEmail = '';
+  
+  if (club.membershipContact) {
+    if (club.membershipContact.phone) {
+      membContactPhone = club.membershipContact.phone;
+      membershipContactButtons.push({
+        type: "phone_number",
+        title: `Call`,
+        payload: membContactPhone
+      });
+      if (club.membershipContact.email) {
+        membContactEmail = club.membershipContact.email;
+      }
+    }
+  }
+  
+  const membContactSubtitle = `${club.membershipContact.name}
+    \n${(membContactPhone) ? 'Phone: ' + membContactPhone + '\n' : ''}
+    ${(membContactEmail) ? 'Email: ' + membContactEmail : ''}`
+  
+  const clubMeetingsAddress = compileAddressString(club.meetings.address);
+  const clubMeetingsSubtitle = `${club.meetings.when} at 
+                              ${(club.meetings.address.where) ? club.meetings.address.where + ' ' : ''}
+                              ${(clubMeetingsAddress) ? clubMeetingsAddress : ''}`;
+  //add back button
+  membershipContactButtons.push(backButton);
+
   var messageData = {
     recipient: {
       id: recipientId
@@ -196,31 +259,24 @@ async function sendMoreDetailsTemplate(recipientId, clubName) {
           template_type: "generic",
           elements: [
             {
-              "title":"Welcome!",
-              "image_url":"https://petersfancybrownhats.com/company_image.png",
-              "subtitle":"We have the right hat for everyone.",
-              "default_action": {
-                "type": "web_url",
-                "url": "https://petersfancybrownhats.com/view?item=103",
-                "webview_height_ratio": "tall",
-              },
-              "buttons":[
-                {
-                  "type":"web_url",
-                  "url":"https://petersfancybrownhats.com",
-                  "title":"View Website"
-                },{
-                  "type":"postback",
-                  "title":"Start Chatting",
-                  "payload":"DEVELOPER_DEFINED_PAYLOAD"
-                }              
-              ]      
+              title:"Club Meetings",
+              // "image_url":"",
+              subtitle: clubMeetingsSubtitle,
+              buttons:[backButton]      
+            },
+            {
+              title:"Membership Contact",
+              // "image_url":"",
+              subtitle: membContactSubtitle,
+              buttons: membershipContactButtons
             }
           ]
         }
       }
     }
   };
+
+  callSendAPI(messageData);
 }
 
 async function respondWithClosestClubs(senderID, messageText, regionCode, coordinates) {
@@ -476,6 +532,9 @@ function sendGenericTemplates(recipientId, clubs) {
       }
     }
   };
+  //save this template in case it needs to be used again
+  saveSenderTemplate(recipientId, messageData);
+
   console.log("[sendMultipleGenericTemplates] %s", JSON.stringify(messageData));
   callSendAPI(messageData);
 }
@@ -655,7 +714,7 @@ async function getClosestClubs(address, coordinates, regionCode) {
       if (origin === '') {
         reject('Could not determine your location, please make sure the postal code is correct or full');
       } else {
-        const clubs = await db.collection('clubs').find().toArray();
+        const clubs = await db.collection(clubsCollectionName).find().toArray();
         const locations = clubs.map(item =>
           item.meetings.address.location.lat + ',' + item.meetings.address.location.lng
         );
