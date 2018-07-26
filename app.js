@@ -249,14 +249,10 @@ async function sendMoreDetailsTemplate(recipientId, clubName) {
     }
   }
   
-  const membContactSubtitle = `${club.membershipContact.name}
-    \n${(membContactPhone) ? 'Phone: ' + membContactPhone + '\n' : ''}
-    ${(membContactEmail) ? 'Email: ' + membContactEmail : ''}`
+  const membContactSubtitle = `${club.membershipContact.name}\n${(membContactPhone !== '') ? 'Phone: ' + membContactPhone + '\n' : ''}${(membContactEmail !== '') ? 'Email: ' + membContactEmail : ''}`
   
   const clubMeetingsAddress = compileAddressString(club.meetings.address);
-  const clubMeetingsSubtitle = `${club.meetings.when} at 
-                              ${(club.meetings.address.where) ? club.meetings.address.where + ' ' : ''}
-                              ${(clubMeetingsAddress) ? clubMeetingsAddress : ''}`;
+  const clubMeetingsSubtitle = `${club.meetings.when} @ ${(club.meetings.address.where) ? club.meetings.address.where + ' ' : ''}${(clubMeetingsAddress !== '') ? clubMeetingsAddress : ''}`;
   //add back button
   membershipContactButtons.push(backButton);
 
@@ -504,8 +500,12 @@ function requestUsersLocation(senderID) {
 }
 
 function compileAddressString(addressObj) {
+  if (addressObj) {
   return `${addressObj.streetNumber} ${addressObj.streetName}, 
   ${addressObj.city}, ${addressObj.province} ${addressObj.postal}`;
+  } else {
+    return '';
+  }
 }
 
 function getMultipleGenericTemplates(recipientId, clubObjects) {
