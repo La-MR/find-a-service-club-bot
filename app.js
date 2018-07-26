@@ -16,7 +16,7 @@ const
   fullPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/,
   partialPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?$/,
   zipCodeRegex = /^\d{5}(?:[-\s]\d{4})?$/,
-  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37868236_2203452356350570_8032674598367526912_n.png?_nc_cat=0&oh=aa1fac33ba973687d31b756b278f36ca&oe=5BC77E17`;
+  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37805960_2140756132665343_186347309439647744_n.png?_nc_cat=0&oh=3025e86baa59b89ea70c4bec5f03f51d&oe=5BCD976D`;
 
 var db;
 var app = express();
