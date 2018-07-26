@@ -22,7 +22,7 @@ const
   clubsCollectionName = 'clubs';
 var db;
 var app = express();
-app.set('port', 5000);
+app.set('port', 1337);
 app.use(bodyParser.json({
   verify: verifyRequestSignature
 }));
