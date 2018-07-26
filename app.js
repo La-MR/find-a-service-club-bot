@@ -173,7 +173,19 @@ function processPostbackMessage(event) {
     const clubName = payload.split(':')[1];
     sendMoreDetailsTemplate(senderID, clubName);
   }
+  else if (payload == 'QR_POSTAL_CODE') {
+    requestUsersPostalCode(senderID);
+  } 
+  else if (payload == 'QR_LOCATION') {
+    requestUsersLocation(senderID);
+  }
+  else if (payload == 'QR_SHARE') {
+    sendShareButton(senderID);
+  }
 }
+
+
+
 
 async function getClub(clubName) {
   const club = await db.collection('clubs').findOne({ clubName: { $eq: clubName } });
@@ -343,6 +355,67 @@ function handleQuickReplyResponse(event) {
       break;
   }
 }
+
+
+function sendShareButton(senderID) {
+  // create the message you'll send to prompt the user to share.
+  var messageData = {
+    recipient: {
+      id: senderID
+    },
+    "message":{
+      "attachment":{
+        "type":"template",
+        "payload":{
+          "template_type":"generic",
+          "elements":[
+            {
+              "title":"Thanks for sharing!",
+              "subtitle":"Click the button below to tell your friends about us!",
+              "image_url":messengerCodeImageURL,
+              "buttons": [
+                {
+                  "type": "element_share",
+                  "share_contents": { 
+                    "attachment": {
+                      "type": "template",
+                      "payload": {
+                        "template_type": "generic",
+                        "elements": [
+                          {
+                            "title": "I found my local service club",
+                            "subtitle": "Find yours today!",
+                            "image_url": messengerCodeImageURL,
+                            "default_action": {
+                              "type": "web_url",
+                              "url": "http://m.me/FindAServiceClub"
+                            },
+                            "buttons": [
+                              {
+                                "type": "web_url",
+                                "url": "http://m.me/FindAServiceClub",
+                                "title": "Get Started"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+
+
+
+  };
+  callSendAPI(messageData);
+}
+
 
 function requestUsersPostalCode(senderID) {
   // create the message you'll send to ask the user to enter their postal code.
