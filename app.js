@@ -6,7 +6,6 @@ const
   config = require('config'),
   crypto = require('crypto'),
   express = require('express'),
-  // https = require('https'),
   request = require('request'),
   mongoClient = require('mongodb').MongoClient,
   googleMapsClient = require('@google/maps').createClient({
@@ -17,9 +16,10 @@ const
   fullPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/,
   partialPostalRegex = /^[A-Za-z]\d[A-Za-z][ -]?$/,
   zipCodeRegex = /^\d{5}(?:[-\s]\d{4})?$/,
-  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37868236_2203452356350570_8032674598367526912_n.png?_nc_cat=0&oh=aa1fac33ba973687d31b756b278f36ca&oe=5BC77E17`,
+  messengerCodeImageURL = `https://scontent.xx.fbcdn.net/v/t39.8917-6/37805960_2140756132665343_186347309439647744_n.png?_nc_cat=0&oh=3025e86baa59b89ea70c4bec5f03f51d&oe=5BCD976D`,
   sTemplatesCollectionName = 'templates',
   clubsCollectionName = 'clubs';
+
 var db;
 var app = express();
 app.set('port', process.env.PORT || 5000);
@@ -182,6 +182,15 @@ async function processPostbackMessage(event) {
     const messageData = await getSenderTemplate(senderID);
     callSendAPI(messageData.template);
   }
+  else if (payload == 'QR_POSTAL_CODE') {
+    requestUsersPostalCode(senderID);
+  } 
+  else if (payload == 'QR_LOCATION') {
+    requestUsersLocation(senderID);
+  }
+  else if (payload == 'QR_SHARE') {
+    sendShareButton(senderID);
+  }
 }
 
 async function saveSenderTemplate(senderID, templateObj) {
@@ -204,6 +213,9 @@ async function getSenderTemplate(senderID) {
   const senderTemplate = await db.collection(sTemplatesCollectionName).findOne({ senderID: { $eq: senderID} });
   return senderTemplate;
 }
+
+
+
 
 async function getClub(clubName) {
   const club = await db.collection(clubsCollectionName).findOne({ clubName: { $eq: clubName } });
@@ -391,7 +403,6 @@ function handleQuickReplyResponse(event) {
   console.log("[handleQuickReplyResponse] Handling quick reply response (%s) from sender (%d) to page (%d) with message (%s)",
     quickReplyPayload, senderID, pageID, JSON.stringify(message));
 
-  //respondToHelpRequest(senderID, quickReplyPayload);
   switch (quickReplyPayload) {
     case 'QR_POSTAL_CODE':
       requestUsersPostalCode(senderID);
@@ -401,6 +412,67 @@ function handleQuickReplyResponse(event) {
       break;
   }
 }
+
+
+function sendShareButton(senderID) {
+  // create the message you'll send to prompt the user to share.
+  var messageData = {
+    recipient: {
+      id: senderID
+    },
+    "message":{
+      "attachment":{
+        "type":"template",
+        "payload":{
+          "template_type":"generic",
+          "elements":[
+            {
+              "title":"Thanks for sharing!",
+              "subtitle":"Click the button below to tell your friends about us!",
+              "image_url":messengerCodeImageURL,
+              "buttons": [
+                {
+                  "type": "element_share",
+                  "share_contents": { 
+                    "attachment": {
+                      "type": "template",
+                      "payload": {
+                        "template_type": "generic",
+                        "elements": [
+                          {
+                            "title": "I found my local service club",
+                            "subtitle": "Find yours today!",
+                            "image_url": messengerCodeImageURL,
+                            "default_action": {
+                              "type": "web_url",
+                              "url": "http://m.me/FindAServiceClub"
+                            },
+                            "buttons": [
+                              {
+                                "type": "web_url",
+                                "url": "http://m.me/FindAServiceClub",
+                                "title": "Get Started"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+
+
+
+  };
+  callSendAPI(messageData);
+}
+
 
 function requestUsersPostalCode(senderID) {
   // create the message you'll send to ask the user to enter their postal code.
